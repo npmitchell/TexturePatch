@@ -26,20 +26,59 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %       - IV:        The 3D texture image volume.This function supports:
 %                   Grayscale:  [I1 x I2 x I3]
 %                   RGB:    { [I1 x I2 x I3] } x 3 cell array (3D)
+%
 %       - Options:  Structure containing the standard options for a
 %                   textured surface patch, such as EdgeColor, EdgeAlpha,
 %                   etc.  See MATLAB documentation for more information.
 %
 %       - Options.PSize:    Special option, defines the image texture size
-%                           for each individual polygon.  A lower number
-%                           gives a more pixelated texture. Defaults to 64.
+%       for each individual polygon.  A lower number gives a more 
+%       pixelated texture {64}
+%
 %       - Options.Rotation: Special option, defines the rotation matrix of 
-%                           all surface patches.
+%       all surface patches
+%
 %       - Options.Translation: Special option, defines the translation 
-%                           vector applied after rotation on all surfaces.
+%       vector applied after rotation on all surfaces
+%
 %       - Options.Rotation: Special option, defines the dilation factor 
-%                           applied to all surfaces after rotation and 
-%                           translation. 
+%       applied to all surfaces after rotation and translation
+%
+%       - Options.ApplyAmbientOcclusion: Determines if the texture
+%       colors should be modified by the ambient occlusion of the 
+%       underlying triangulation {'false'}
+%
+%       - Options.AmbientOcclusion:    #Vx1 list of ambient occlusion
+%       values
+%
+%       - Options.AmbientOcculsionFactor: A scalar between [0,1]
+%       determining how strongly the ambient occlusion modifies the 
+%       texture mapping {1}
+%
+%       - Options.AmbientOcculsionSamples: The number of samples to use
+%       when computing the ambient occlusion {1000}
+%
+%       - Options.Unoriented: Treat the surface as unoriented when
+%       applying ambient occlusion {'false'}
+%
+%       - Options.AddLights: Will add lighting to the plot {'false'}
+%
+%       - Options.ScalarField: A vertex-based or face based scalar field
+%       used to augment texture mapping with external color
+%
+%       - Options.ScalarCLim: The colormap limits used to display the
+%       scalar field. By default it will use the full range of values in
+%       the scalar field
+%
+%       - Options.ScalarColorMap: The colormap used to display the scalar
+%       field.  Either a a string corresponding to a built-in MATLAB
+%       colormap or a user supplied #Cx3 colormap {'parula'}
+%
+%       - Options.ScalarAlpha: A scalar between [0,1] determining
+%       how the transparency of the overlay of the scalar field mapping
+%       {0.1};
+%
+%       - Options.VertexNormals: #Vx3 list of vertex unit normals
 %
 % See also
 % --------
@@ -55,67 +94,16 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 % INPUT PROCESSING
 %--------------------------------------------------------------------------
 
-% Patch FaceColor MUST be a texture.
-Options.FaceColor = 'texturemap';
+% Validate input triangulations -------------------------------------------
 
-% Size of the 2D texture image used for each triangle
-if isfield( Options, 'PSize' )
-    sizep = round(Options.PSize(1));
-    Options = rmfield(Options, 'PSize');
-else
-    sizep = 64;
-end
-
-% Also get rotation for all patches
-if isfield( Options, 'Rotation' )
-    rot = Options.Rotation ;
-    Options = rmfield(Options, 'Rotation');
-    rotate = true ;
-else
-    rotate = false ;
-end
-
-% Also get translation for all patches
-if isfield( Options, 'Translation' )
-    trans = Options.Translation ;
-    Options = rmfield(Options, 'Translation');
-    translate = true ;
-else
-    translate = false ;
-end
-
-% Also get dilation for all patches
-if isfield( Options, 'Dilation' )
-    dilation = Options.Dilation ;
-    Options = rmfield(Options, 'Dilation');
-    dilate = true ;
-else
-    dilate = false ;
-end
-
-% Determine if input is RGB or grayscale
-if isfield( Options, 'isRGB' )
-    isRGB = Options.isRGB;
-else
-    if ( iscell(I) || ( (size(TV,2) == 2) && (size(I,3) == 3) ) )
-        isRGB = true;
-    else
-        isRGB = false;
-    end
-end
-
-% Also get color if bright pixels should be a color for all patches
-if isRGB
-    colorize = false ;
-else
-    if isfield( Options, 'FaceScalarField' )
-        heat = Options.Color ;
-        Options = rmfield(Options, 'FaceScalarField');
-        colorize = true ;
-    else
-        colorize = false ;
-    end
-end
+validateattributes(FF, {'numeric'}, ...
+    {'2d', 'ncols', 3, 'finite', 'nonnan', 'real', 'integer', 'positive'});
+validateattributes(VV, {'numeric'}, ...
+    {'2d', 'finite', 'nonnan', 'real'});
+validateattributes(TF, {'numeric'}, ...
+    {'2d', 'ncols', 3, 'finite', 'nonnan', 'real', 'integer', 'positive'});
+validateattributes(TV, {'numeric'}, ...
+    {'2d', 'finite', 'nonnan', 'real'});
 
 % Check that the number of faces is consistent
 if ( size(FF,2) ~= size(TF,2) )
@@ -139,11 +127,6 @@ if ( size(TV,2) ~= 3 )
     error('texture_patch_3d:inputs', 'Invalid texture vertex input');
 end
 
-% Check the dimensions of the texure image
-if ( ndims(IV) ~= 3 )
-    error('texture_patch_3d:inputs', 'Invalid texture image input');
-end
-
 % Re-scale texture vertices to true pixel positions if necessary
 if ( max(TV(:)) < 2 )
     
@@ -153,7 +136,229 @@ if ( max(TV(:)) < 2 )
     
 end
 
-% Create the interpolant object from the input image object
+% Validate texture patch options ------------------------------------------
+if (nargin < 6), Options = Struct(); end
+
+% Patch FaceColor MUST be a texture.
+Options.FaceColor = 'texturemap';
+
+% Size of the 2D texture image used for each triangle
+if isfield( Options, 'PSize' )
+    sizep = round(Options.PSize(1));
+    Options = rmfield(Options, 'PSize');
+else
+    sizep = 64;
+end
+
+% Global rotation for all faces
+if isfield( Options, 'Rotation' )
+    rot = Options.Rotation ;
+    Options = rmfield(Options, 'Rotation');
+    rotate = true ;
+else
+    rotate = false ;
+end
+
+% Global translation for all faces
+if isfield( Options, 'Translation' )
+    trans = Options.Translation ;
+    Options = rmfield(Options, 'Translation');
+    translate = true ;
+else
+    translate = false ;
+end
+
+% Global dilation for all faces
+if isfield( Options, 'Dilation' )
+    dilation = Options.Dilation ;
+    Options = rmfield( Options, 'Dilation' );
+    dilate = true ;
+else
+    dilate = false ;
+end
+
+% Determine if input is RGB or grayscale
+if isfield( Options, 'isRGB' )
+    isRGB = Options.isRGB;
+    Options = rmfield( Options, 'isRGB' );
+else
+    if ( iscell(IV) || ( (size(TV,2) == 2) && (size(IV,3) == 3) ) )
+        isRGB = true;
+    else
+        isRGB = false;
+    end
+end
+
+% Apply scaling of grayscape texture data by scalar field
+% if isRGB
+%     colorize = false ;
+% else
+%     if isfield( Options, 'FaceScalarField' )
+%         heat = Options.FaceScalarField ;
+%         Options = rmfield( Options, 'FaceScalarField' );
+%         colorize = true ;
+%     else
+%         colorize = false ;
+%     end
+% end
+
+% A vertex- or face-based scalar field used to colorize data
+if isfield( Options, 'ScalarField' )
+    S = Options.ScalarField;
+    Options = rmfield( Options, 'ScalarField' );
+    colorize = true;
+    
+    if ~( (numel(S) == size(VV,1)) || ...
+            (numel(S) == size(FF,1)) )
+        error('texture_patch_3d:inputs', ...
+            'Invalid scalar field colorization input');
+    end
+    
+else
+    colorize = false;
+    S = [];
+end
+
+% Limits of the scalar field colormap
+if isfield( Options, 'ScalarCLim' )
+    SCLim = Options.ScalarCLim;
+    Options = rmfield( Options, 'ScalarCLim' );
+else
+    if colorize
+        SCLim = [ min(S) max(S) ];
+    end
+end
+
+% The scalar field colormap
+if isfield( Options, 'ScalarColorMap' )
+    SCMap = Options.ScalarColorMap;
+    Options = rmfield( Options, 'ScalarColorMap' );
+    
+    if isnumeric(SCMap)
+        if ~(ismatrix(SCMap) && (size(SCMap,2) == 3))
+            error('texture_patch_3d:inputs', ...
+                'Invalid scalar field colormap input');
+        end
+    else
+        if ~exist('SCMap', 'var')
+            error('texture_patch_3d:inputs', ...
+                'Invalid scalar field colormap input');
+        end
+        SCMap = eval([SCMap '(256)']);
+    end
+    
+else
+    SCMap = parula; % 256 x 3
+end
+
+% Weights for combining the scalar field with the texture mapping
+if isfield( Options, 'ScalarAlpha' )
+    SAlpha = Options.ScalarAlpha;
+    Options = rmfield( Options, 'ScalarAlpha' );
+else
+    SAlpha = 0.1;
+end
+
+% Apply ambient occlusion
+if isfield( Options, 'ApplyAmbientOcclusion' )
+    applyAO = Options.ApplyAmbientOcclusion;
+    Options =rmfield(Options, 'ApplyAmbientOcclusion');
+else
+    applyAO = false;
+end
+
+% Ambient occlusion values
+if isfield( Options, 'AmbientOcclusion' )
+    AO = Options.AmbientOcclusion;
+    Options = rmfield( Options, 'AmbientOcclusion' );
+    if ~isempty(AO), applyAO = true; end
+else
+    AO = [];
+end
+
+% Ambient occlusion factor
+if isfield( Options, 'AmbientOcclusionFactor' )
+    AOFactor = Options.AmbientOcclusionFactor;
+    Options = rmfield( Options, 'AmbientOcclusionFactor' );
+else
+    AOFactor = 1;
+end
+
+% Ambient occlusion sample number
+if isfield( Options, 'AmbientOcclusionSamples' )
+    AOSamples = Options.AmbientOcclusionSamples;
+    Options = rmfield( Options, 'AmbientOcclusionSamples' );
+else
+    AOSamples = 1000;
+end
+
+% Surface orientation handling
+if isfield( Options, 'Unoriented' )
+    unoriented = Options.Unoriented;
+    Options = rmfield( Options, 'Unoriented' );
+else
+    unoriented = false;
+end
+
+% Add lights to the axes
+if isfield( Options, 'AddLights' )
+    addLights = Options.AddLights;
+    Options = rmfield( Options, 'AddLights' );
+else
+    addLights = false;
+end
+
+% Physical mesh vertex unit normals
+if isfield( Options, 'VertexNormals' )
+    VN = Options.VertexNormals;
+    Options.rmfield( Options, 'VertexNormals');
+    
+    if ~isequal(size(VN), (VV))
+        error('texture_patch_3d:inputs', ...
+                'Invalid vertex normal input');
+    end
+else
+    VN = per_vertex_normals( VV, FF, 'Weighting', 'angle' );
+end
+        
+
+% Validate input texture image volume -------------------------------------
+if (nargin < 5), IV = []; end
+
+if ~isempty(IV) % Allow users to supply pre-made interpolant
+    
+    if isRGB
+
+        if ~( iscell(IV) && (numel(IV) == 3) )
+            
+            error('texture_patch_3d:inputs', ...
+                'Invalid texture image input');
+            
+        else
+            
+            goodIV = (ndims(IV{1}) == 3) && ...
+                isequal(size(IV{1}), size(IV{2})) && ...
+                isequal(size(IV{1}), size(IV{3})) && ...
+                isequal(size(IV{2}), size(IV{3}));
+            
+            if ~goodIV
+                error('texture_patch_3d:inputs', ...
+                    'Invalid texture image input');
+            end
+            
+        end
+        
+    else
+        
+        if ~(ndims(IV) == 3)
+            error('texture_patch_3d:inputs', ...
+            'Invalid texture image input');
+        end
+        
+    end
+    
+end
+
 % Create the interpolant object from the input image object ---------------
 if isfield( Options, 'Interpolant' )
     
@@ -162,7 +367,7 @@ if isfield( Options, 'Interpolant' )
     if isRGB
         
         if ~( iscell(IVIr) && (numel(IVIr) == 3) )
-            error('texture_patch_to_image:inputs', ...
+            error('texture_patch_3d:inputs', ...
                 'Invalid texture image interpolation object');
         end
         
@@ -180,7 +385,48 @@ else
         
     else
     
-        IVI = griddedInterpolant(single(IV), 'cubic');
+        IVIr = griddedInterpolant(single(IV), 'cubic');
+        
+    end
+    
+end
+
+%--------------------------------------------------------------------------
+% SCALAR FIELD COLORIZATION HANDLING
+%--------------------------------------------------------------------------
+
+if colorize
+    
+    % Map scalar field values to colors via the color mapping
+    S(S < SCLim(1)) = SCLim(1);
+    S(S > SCLim(2)) = SCLim(2);
+    
+    SInd = round( ( (S - SCLim(1)) ./ diff(SCLim) ) .* ...
+        (size(SCMap,1)-1) ) + 1;
+    SInd(isnan(SInd)) = 1;
+    
+    SColors = SCMap(SInd, :);
+    
+    % For colorizing grayscale images
+    if ~isRGB, boneMap = bone (256); end
+ 
+    
+end
+
+%--------------------------------------------------------------------------
+% AMBIENT OCCLUSION HANDLING
+%--------------------------------------------------------------------------
+
+if applyAO
+    
+    if isempty(AO)
+        
+        % Calculate ambient occulsion
+        % NOTE: MATLAB uses backwards normals for graphics...
+        AO = ambient_occlusion(VV, FF, VV, -VN, AOSamples);
+        if unoriented
+            AO = min( AO, ambient_occlusion(VV, FF, VV, VN, AOSamples) );
+        end
         
     end
     
@@ -194,11 +440,8 @@ end
 % For simplicity these will be the same for each triangle regardless of
 % size in either the physical or texture space. A smarter algorithm would
 % probably take these features into account
-if isRGB
-    J = zeros( (sizep+1), (sizep+1), 3, class(IV) );
-else
-    J = zeros( (sizep+1), (sizep+1), class(IV) );
-end
+Jr = zeros( (sizep+1), (sizep+1), 'single' );
+if isRGB, Jg = Jr; Jb = Jr; end
 
 % Linear indices of the 2D image associated with the triangle patch
 jind = (sizep+1)^2:-1:1;
@@ -233,6 +476,11 @@ for i = 1:size(FF,1)
     % Define the texture coordinates of the 'surface'
     xyz = [ tV(1,:); tV(2,:); tV(3,:); tV(3,:) ];
     
+    % Assemble vertex normal list
+    vn = [ VN( FF(i,:), : ); VN( FF(i,3), : ) ];
+    vn = cat(3, reshape(vn(:,1), [2 2]), reshape(vn(:,2), [2 2]), ...
+        reshape(vn(:,3), [2 2]));
+    
     % Calculate the texture interpolation coordinatex ---------------------
     
     pos(:,1) = xyz(1,1)*lambda1 + xyz(2,1)*lambda2 + xyz(3,1)*lambda3;
@@ -240,15 +488,16 @@ for i = 1:size(FF,1)
     pos(:,3) = xyz(1,3)*lambda1 + xyz(2,3)*lambda2 + xyz(3,3)*lambda3;
     
     % Map texture to surface image ----------------------------------------
+    Jr(jind) = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ;
+    J(:,:,1) = Jr;
     if isRGB
-        J(jind) = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ; 
-        J((sizep+1)^2 + jind) = IVIg( pos(:,1), pos(:,2), pos(:,3) ) ; 
-        J(2 * (sizep+1)^2 + jind) = IVIb( pos(:,1), pos(:,2), pos(:,3) ) ; 
-    else
-        J(jind) = IVI( pos(:,1), pos(:,2), pos(:,3) ) ; 
+        Jg(jind) = IVIg( pos(:,1), pos(:,2), pos(:,3) );
+        Jb(jind) = IVIb( pos(:,1), pos(:,3), pos(:,3) );
+        J(:,:,2) = Jg;
+        J(:,:,3) = Jb;
     end
     
-    % Show the surface ----------------------------------------------------
+    % Apply affine transformations ----------------------------------------
     if rotate
         xyz = [x(1) y(1) z(1); x(3) y(3) z(3); x(2) y(2) z(2)] ;
         xyzp = (rot * xyz')' ;
@@ -256,21 +505,94 @@ for i = 1:size(FF,1)
         y = [xyzp(1, 2) xyzp(2, 2); xyzp(3, 2) xyzp(3, 2)];
         z = [xyzp(1, 3) xyzp(2, 3); xyzp(3, 3) xyzp(3, 3)];
     end
+    
     if translate
         x = x + trans(1) ;
         y = y + trans(2) ;
         z = z + trans(3) ;
     end
+    
     if dilate
         x = x * dilation ;
         y = y * dilation ;
         z = z * dilation ;
     end
     
+    % Apply scalar field colorization -------------------------------------
+    
     if colorize
-        J = heat(i) * J ;
+        
+        % Grayscale texture mappings must be made RGB 
+        if ~isRGB
+            
+            cind = round( 255 .* (Jr(:)-min(Jr(:))) ./ range(Jr(:)) ) + 1;
+            cind(isnan(cind)) = 1;
+            
+            Jr = reshape(boneMap(cind, 1), sizep+1, sizep+1);
+            Jg = reshape(boneMap(cind, 2), sizep+1, sizep+1);
+            Jb = reshape(boneMap(cind, 3), sizep+1, sizep+1);
+            
+        end
+        
+        if numel(S) == size(FF,1) % Face based scalar field
+            
+            SC = SColors(i,:); % Face has a single flat color
+            
+            % Calculate alpha blending for each channel
+            Jr = SAlpha .* SC(1) + (1-SAlpha) .* Jr;
+            Jg = SAlpha .* SC(2) + (1-SAlpha) .* Jg;
+            Jb = SAlpha .* SC(3) + (1-SAlpha) .* Jb;
+            
+        else % Vertex based scalar field
+            
+            % Interpolated scalar field colors from vertices
+            SCr = SColors(FF(i,1),1)*lambda1 ...
+                + SColors(FF(i,2),1)*lambda2 + SColors(FF(i,3),1)*lambda3;
+            SCg = SColors(FF(i,1),2)*lambda1 ...
+                + SColors(FF(i,2),2)*lambda2 + SColors(FF(i,3),2)*lambda3;
+            SCb = SColors(FF(i,1),3)*lambda1 ...
+                + SColors(FF(i,2),3)*lambda2 + SColors(FF(i,3),3)*lambda3;
+            
+            % Reshape to the size of the surface image
+            SCr = reshape(SCr, sizep+1, sizep+1);
+            SCg = reshape(SCg, sizep+1, sizep+1);
+            SCb = reshape(SCb, sizep+1, sizep+1);
+            
+            % Calculate alpha blending for each channel
+            Jr = SAlpha .* SCr + (1-SAlpha) .* Jr;
+            Jg = SAlpha .* SCg + (1-SAlpha) .* Jg;
+            Jb = SAlpha .* SCb + (1-SAlpha) .* Jb;
+            
+        end
+        
+        % Combine channels
+        J = cat(3, Jr, Jg, Jb);
+        
     end
     
+    % Apply ambient occlusion ---------------------------------------------
+    if applyAO
+        
+        % Interpolate the ambient occlusion values on vertices
+        AOMat = AO(FF(i,1))*lambda1 + AO(FF(i,2))*lambda2 + ...
+            AO(FF(i,3))*lambda3;
+        
+        % Reshape to the size of the surface image
+        AOMat = reshape(AOMat, sizep+1, sizep+1);
+        
+        Jr = (1-AOFactor) .* Jr + AOFactor .* (Jr .* (1-AOMat));
+        J(:,:,1) = Jr;
+        if (isRGB || colorize)
+            Jg = (1-AOFactor) .* Jg + AOFactor .* (Jg .* (1-AOMat));
+            Jb = (1-AOFactor) .* Jb + AOFactor .* (Jb .* (1-AOMat));
+            J(:,:,2) = Jg;
+            J(:,:,3) = Jb;
+        end
+        
+    end
+    
+    % Show surface --------------------------------------------------------
+    Options.VertexNormals = vn;
     surface( container, x, y, z, J, Options );
     
 end
@@ -280,6 +602,28 @@ end
 % set(t1,'Matrix',Txy)
 
 hold off
+
+%--------------------------------------------------------------------------
+% Lighting Handling
+%--------------------------------------------------------------------------
+
+if addLights
+    
+    % Extract the center of the current axis bounding box
+    XLim = get(gca, 'XLim');
+    YLim = get(gca, 'YLim');
+    ZLim = get(gca, 'ZLim');
+    
+    cen = [ mean(XLim) mean(YLim) mean(ZLim) ];
+    
+    light( 'Position', [cen(1) cen(2) 10*(max(ZLim)-min(ZLim))+cen(3)], ...
+        'Style', 'local', 'Color', [1 1 1]/3 );
+    light( 'Position', [cen(1) 10*(max(ZLim)-min(ZLim))+cen(2) cen(3)], ...
+        'Style', 'local', 'Color', [1 1 1]/3 );
+    light( 'Position', [cen(1) 10*(min(ZLim)-max(ZLim))+cen(2) cen(3)], ...
+        'Style', 'local', 'Color', [1 1 1]/3 );
+    
+end
 
 end
 
