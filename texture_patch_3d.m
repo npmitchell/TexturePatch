@@ -89,6 +89,7 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %   NPMitchell grouped surfaces into a Parent container for speedup 09/2019
 %   NPMitchell added colorize to options 12/2019
 %   NPMitchell added capability for RGB color input images
+%   NPMitchell added Imax, Imin for clipping the interpolated intensities
 
 %--------------------------------------------------------------------------
 % INPUT PROCESSING
@@ -187,6 +188,20 @@ else
     else
         isRGB = false;
     end
+end
+
+% Determine if input is RGB or grayscale
+if isfield( Options, 'Imax' )
+    Imax = Options.Imax;
+    Options = rmfield( Options, 'Imax' );
+else
+    Imax = Inf ;
+end
+if isfield( Options, 'Imin' )
+    Imin = Options.Imin;
+    Options = rmfield( Options, 'Imin' );
+else
+    Imin = -Inf ;
 end
 
 % Apply scaling of grayscape texture data by scalar field
@@ -489,10 +504,27 @@ for i = 1:size(FF,1)
     
     % Map texture to surface image ----------------------------------------
     Jr(jind) = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ;
+    if Imin > -Inf
+        Jr(Jr < Imin) = Imin ;
+    end
+    if Imax < Inf 
+        Jr(Jr > Imax) = Imax ;
+        Jr = Jr / Imax ;
+    end
     J(:,:,1) = Jr;
     if isRGB
         Jg(jind) = IVIg( pos(:,1), pos(:,2), pos(:,3) );
         Jb(jind) = IVIb( pos(:,1), pos(:,3), pos(:,3) );
+        if Imin > -Inf
+            Jg(Jg < Imin) = Imin ;
+            Jb(Jb < Imin) = Imin ;
+        end
+        if Imax < Inf 
+            Jg(Jg > Imax) = Imax ;
+            Jb(Jb > Imax) = Imax ;
+            Jb = Jb / Imax ;
+            Jg = Jg / Imax ;
+        end
         J(:,:,2) = Jg;
         J(:,:,3) = Jb;
     end
@@ -590,9 +622,11 @@ for i = 1:size(FF,1)
         end
         
     end
-    
+        
     % Show surface --------------------------------------------------------
-    Options.VertexNormals = vn;
+    % NOTE: MATLAB uses left-handed normals for graphics objects...
+    Options.VertexNormals = -vn;
+    % J 
     surface( container, x, y, z, J, Options );
     
 end
