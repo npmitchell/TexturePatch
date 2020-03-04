@@ -80,6 +80,13 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %
 %       - Options.VertexNormals: #Vx3 list of vertex unit normals
 %
+%       - Options.Imax: float, maximum value for the data interpolant 
+%       object above which we clip the intensity
+%
+%       - Options.Imin: float, minimum value for the data interpolant 
+%       object below which we clip the intensity
+%
+%
 % See also
 % --------
 % texture_patch_to_image.m
