@@ -189,15 +189,63 @@ end
 if isfield( Options, 'isRGB' )
     isRGB = Options.isRGB;
     Options = rmfield( Options, 'isRGB' );
+    isFalseColor = false ;
+elseif isfield(Options, 'isFalseColor')
+    isFalseColor = Options.isFalseColor ;
+    Options = rmfield( Options, 'isFalseColor' ) ;
+    isRGB = false ;
 else
-    if ( iscell(IV) || ( (size(TV,2) == 2) && (size(IV,3) == 3) ) )
+    if ( iscell(IV) && length(IV) == 3 )
+        % Assume that if IV is a length3 cell, its channels are RGB
         isRGB = true;
+        isFalseColor = false ;
+    elseif iscell(IV)
+        isRGB = false ;
+        isFalseColor = true ;
     else
         isRGB = false;
+        isFalseColor = false ;
+    end
+end
+if ~isRGB && isfield(Options, 'isFalseColor')
+    isFalseColor = Options.isFalseColor ;
+    Options = rmfield( Options, 'isFalseColor' ) ;
+end
+
+% Determine colors for falseColor option (when IV is a cell)
+if isFalseColor
+    if isfield(Options, 'falseColors')
+        falseColors = Options.falseColors ;
+        % Check that the correct number of colors is given
+        if size(falseColors, 1) ~= length(IV)
+            error('Must pass same number of colors as number of color channels in falseColor rendering mode')
+        else
+            % Convert falseColors to cell array if not done already
+            if ~iscell(falseColors)
+                fC = cell(length(IV), 1) ;
+                for kk = 1:length(IV)
+                    fC{kk} = falseColors(kk, :) ;
+                end
+            end
+        end
+    else
+        if length(IV) == 1
+            error('Entered falseColor mode but only one texture channel exists (IV)')
+        elseif length(IV) == 2
+            disp('falseColors not supplied --> Using default 2-color channels of red and cyan')
+            falseColors{1} = [1, 0, 0] ;
+            falseColors{2} = [0, 1, 1] ;
+        elseif length(IV) == 3
+            falseColors{1} = [1, 0, 0] ;
+            falseColors{2} = [0, 1, 0] ;
+            falseColors{3} = [0, 0, 1] ; 
+        else
+            error('For texture spaces with more than 3 channels, please supply colors for each channel')
+        end
     end
 end
 
-% Determine if input is RGB or grayscale
+% Determine intensity limits from Options
 if isfield( Options, 'Imax' )
     Imax = Options.Imax;
     Options = rmfield( Options, 'Imax' );
@@ -343,6 +391,50 @@ else
     VN = per_vertex_normals( VV, FF, 'Weighting', 'angle' );
 end
         
+% Determine if any onion layers are to be produced
+makePosLayers = false;
+makeNegLayers = false;
+makeMIP = false;
+if isfield( Options, 'numLayers' )
+    numLayers = Options.numLayers;
+    if (abs(numLayers(1)) > 0), makePosLayers = true; end
+    if (abs(numLayers(2)) > 0), makeNegLayers = true; end
+    if ( makePosLayers || makeNegLayers ), makeMIP = true; end
+    numLayers = Options.numLayers ;
+    Options = rmfield(Options, 'numLayers') ;
+else
+    numLayers = [0 0];
+end
+
+% Determine the onion layer spacing
+if isfield( Options, 'layerSpacing' )
+    layerSpacing = Options.layerSpacing ;
+    Options = rmfield(Options, 'layerSpacing') ;
+else
+    layerSpacing = 5;
+end
+
+% Determine how many iterations of Laplacian mesh smoothing to run on the
+% input mesh prior to vertex displacement along normal vectors
+if isfield( Options, 'smoothIter' )
+    smoothIter = Options.smoothIter;
+    % Check that GPToolBox is on the path
+    if smoothIter > 0
+        if ~exist('laplacian_smooth', 'file')
+            warning('GPToolBox was not found. Using default settings.');
+            smoothIter = 0;
+            smoothMesh = false;
+        else
+            smoothMesh = true;
+        end
+    else
+        smoothMesh = false;
+    end
+else
+    smoothIter = 0;
+    smoothMesh = false;
+end
+
 
 % Validate input texture image volume -------------------------------------
 if (nargin < 5), IV = []; end
@@ -369,6 +461,12 @@ if ~isempty(IV) % Allow users to supply pre-made interpolant
             end
             
         end
+    elseif isFalseColor
+        
+        if ~iscell(IV)
+            error('texture_patch_3d:inputs', ...
+                'Invalid texture image input: IV should be cell if Options.isFalseColor==true');
+        end
         
     else
         
@@ -381,20 +479,34 @@ if ~isempty(IV) % Allow users to supply pre-made interpolant
     
 end
 
+
 % Create the interpolant object from the input image object ---------------
 if isfield( Options, 'Interpolant' )
     
-    IVIr = Options.Interpolant;
+    IVI = Options.Interpolant;
     
     if isRGB
         
-        if ~( iscell(IVIr) && (numel(IVIr) == 3) )
+        if ~( iscell(IVI) && (numel(IVI) == 3) )
             error('texture_patch_3d:inputs', ...
-                'Invalid texture image interpolation object');
+                'Invalid texture image interpolation object: must have 3 elements for RGB');
         end
         
-        IVIg = IVIr{2}; IVIb = IVIr{3}; IVIr = IVIr{1};
+        IVIr = IVI{1}; IVIg = IVI{2}; IVIb = IVI{3}; 
+        clearvars IVI
         
+    elseif isFalseColor
+        
+        if ~( iscell(IVI) && (numel(IVI) == length(IV)) )
+            error('texture_patch_3d:inputs', ...
+                'Invalid texture image interpolation object: must have same #elements as IV');
+        end
+        
+        IVIfc = cell(size(IV)) ;
+        for kk = 1:length(IV)
+            IVIfc{kk} = IVI{kk} ;
+        end
+        clearvars IVI
     end
         
 else
@@ -405,9 +517,16 @@ else
         IVIg = griddedInterpolant(single(IV{2}), 'cubic');
         IVIb = griddedInterpolant(single(IV{3}), 'cubic');
         
+    elseif isFalseColor
+        % Each input texture channel receives its own interpolant
+        IVIfc = cell(size(IV)) ;
+        for kk = 1:length(IV)
+            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic');
+        end
+        
     else
     
-        IVIr = griddedInterpolant(single(IV), 'cubic');
+        IVI = griddedInterpolant(single(IV), 'cubic');
         
     end
     
@@ -430,7 +549,7 @@ if colorize
     SColors = SCMap(SInd, :);
     
     % For colorizing grayscale images
-    if ~isRGB, boneMap = bone (256); end
+    if ~isRGB, boneMap = bone(256); end
  
     
 end
@@ -463,7 +582,10 @@ end
 % size in either the physical or texture space. A smarter algorithm would
 % probably take these features into account
 Jr = zeros( (sizep+1), (sizep+1), 'single' );
-if isRGB, Jg = Jr; Jb = Jr; end
+if isRGB || isFalseColor
+    Jg = Jr; 
+    Jb = Jr; 
+end
 
 % Linear indices of the 2D image associated with the triangle patch
 jind = (sizep+1)^2:-1:1;
@@ -490,7 +612,7 @@ for i = 1:size(FF,1)
     % The current face's texture vertex coordinates
     tV = TV( TF(i,:), : );
     
-     % Define the physical face in 'surface' format
+    % Define the physical face in 'surface' format
     x=[V(1,1) V(2,1); V(3,1) V(3,1)];
     y=[V(1,2) V(2,2); V(3,2) V(3,2)];
     z=[V(1,3) V(2,3); V(3,3) V(3,3)];
@@ -504,37 +626,169 @@ for i = 1:size(FF,1)
         reshape(vn(:,3), [2 2]));
     
     % Calculate the texture interpolation coordinatex ---------------------
-    
     pos(:,1) = xyz(1,1)*lambda1 + xyz(2,1)*lambda2 + xyz(3,1)*lambda3;
     pos(:,2) = xyz(1,2)*lambda1 + xyz(2,2)*lambda2 + xyz(3,2)*lambda3;
     pos(:,3) = xyz(1,3)*lambda1 + xyz(2,3)*lambda2 + xyz(3,3)*lambda3;
     
+    % Add MIP capability: Map Jr,Jg,Jb at each onion layer for this face
+    isSingleColor = ~isFalseColor && ~isRGB ;
+    if makeMIP 
+        % compute the offset vector interpolated over the face 
+        % NOTE: these are a grid of normal vectors interpolated on the face
+        offv(:, 1) = VN(FF(i,1),1)*lambda1 + VN(FF(i,2),1)*lambda2 + VN(FF(i,3),1)*lambda3 ;
+        offv(:, 2) = VN(FF(i,1),2)*lambda1 + VN(FF(i,2),2)*lambda2 + VN(FF(i,3),2)*lambda3 ;
+        offv(:, 3) = VN(FF(i,1),3)*lambda1 + VN(FF(i,2),3)*lambda2 + VN(FF(i,3),3)*lambda3 ;
+        if isSingleColor
+            IVIv = IVI( pos(:,1), pos(:,2), pos(:,3) ) ;
+            if makePosLayers
+                for q=1:numLayers(1)
+                    newpos = pos + offv * q * layerSpacing ;
+                    IVIv = max(IVIv, IVI( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                end
+            end
+            if makeNegLayers
+                for q=1:numLayers(2)
+                    newpos = pos - offv * q * layerSpacing ;
+                    IVIv = max(IVIv, IVI( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                end
+            end
+        elseif isRGB
+            % Apply MIP in each interpolant channel for R, G, and B
+            IVIvr = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ;
+            IVIvg = IVIg( pos(:,1), pos(:,2), pos(:,3) ) ;
+            IVIvb = IVIb( pos(:,1), pos(:,2), pos(:,3) ) ;
+            if makePosLayers
+                for q=1:numLayers(1)
+                    newpos = pos + offv * q * layerSpacing ;
+                    IVIvr = max(IVIvr, IVIr( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    IVIvg = max(IVIvg, IVIg( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    IVIvb = max(IVIvb, IVIb( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                end
+            end
+            if makeNegLayers
+                for q=1:numLayers(2)
+                    newpos = pos - offv * q * layerSpacing ;
+                    IVIvr = max(IVIvr, IVIr( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    IVIvg = max(IVIvg, IVIg( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    IVIvb = max(IVIvb, IVIb( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                end
+            end
+        elseif isFalseColor
+            % Apply MIP in each interpolant channel for falseColor
+            for kk = 1:length(IVIfc)
+                IVIvfc{kk} = IVIfc{kk}( pos(:,1), pos(:,2), pos(:,3) ) ;
+            end
+                        
+            if makePosLayers
+                for q=1:numLayers(1)
+                    newpos = pos + offv * q * layerSpacing ;
+                    for kk = 1:length(IVIfc)
+                        IVIvfc{kk} = max(IVIvfc{kk}, IVIfc{kk}( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    end
+                end
+            end
+            if makeNegLayers
+                for q=1:numLayers(2)
+                    newpos = pos - offv * q * layerSpacing ;
+                    for kk = 1:length(IVIfc)
+                        IVIvfc{kk} = max(IVIvfc{kk}, IVIfc{kk}( newpos(:,1), newpos(:,2), newpos(:,3) )) ;
+                    end
+                end
+            end
+        end
+    elseif makeSIP
+        % todo: SIP
+        error('have not coded for SIP yet')
+    end
+    
     % Map texture to surface image ----------------------------------------
-    Jr(jind) = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ;
-    if Imin > -Inf
-        Jr(Jr < Imin) = Imin ;
-    end
-    if Imax < Inf 
-        Jr(Jr > Imax) = Imax ;
-        Jr = Jr / Imax ;
-    end
-    J(:,:,1) = Jr;
-    if isRGB
-        Jg(jind) = IVIg( pos(:,1), pos(:,2), pos(:,3) );
-        Jb(jind) = IVIb( pos(:,1), pos(:,3), pos(:,3) );
+    if isSingleColor
+        % Here handle case where single color 
+        Jr(jind) = IVIv ;
+                
         if Imin > -Inf
+            Jr(Jr < Imin) = Imin ;
+        end
+        if Imax < Inf 
+            Jr(Jr > Imax) = Imax ;
+            Jr = Jr / Imax ;
+        end
+        J(:,:,1) = Jr;      
+        
+    elseif isRGB
+        % Here handle case where RGB 
+        Jr(jind) = IVIvr ;
+        Jg(jind) = IVIvg ;
+        Jb(jind) = IVIvb ;
+        
+        % Clip interpolated values by Imin and Imax
+        if Imin > -Inf
+            Jr(Jr < Imin) = Imin ;
             Jg(Jg < Imin) = Imin ;
             Jb(Jb < Imin) = Imin ;
         end
         if Imax < Inf 
+            Jr(Jr > Imax) = Imax ;
             Jg(Jg > Imax) = Imax ;
             Jb(Jb > Imax) = Imax ;
+            Jr = Jr / Imax ;
             Jb = Jb / Imax ;
             Jg = Jg / Imax ;
         end
+        J(:,:,1) = Jr;
         J(:,:,2) = Jg;
         J(:,:,3) = Jb;
+        
+    elseif isFalseColor
+        % Here handle false color channels with supplied colors for each
+        
+        % Clip interpolated values by Imin and Imax
+        if Imin > -Inf
+            for ii=1:length(IVIvfc)
+                IVIvfc{ii}(IVIvfc{ii} < Imin) = Imin ;
+            end
+        end
+        if Imax < Inf 
+            for ii=1:length(IVIvfc)
+                IVIvfc{ii}(IVIvfc{ii} > Imax) = Imax ;
+                IVIvfc{ii} = IVIvfc{ii} / Imax ;
+            end
+        end
+        
+        for ii = 1:length(IV)
+            fc = falseColors{ii} ;
+            % apply false color
+            if ii == 1
+                % initialize the Jr matrices
+                Jr(jind) = fc(1) * IVIvfc{ii} ;
+                Jg(jind) = fc(2) * IVIvfc{ii} ;
+                Jb(jind) = fc(3) * IVIvfc{ii}  ;
+            else
+                Jr(jind) = Jr(jind) + fc(1) * IVIvfc{ii}' ;
+                Jg(jind) = Jg(jind) + fc(2) * IVIvfc{ii}' ;
+                Jb(jind) = Jb(jind) + fc(3) * IVIvfc{ii}' ;
+            end
+        end
+        J(:,:,1) = Jr;
+        J(:,:,2) = Jg;
+        J(:,:,3) = Jb;
+                
+        % Clip compiled interpolant values by Imin and Imax
+        if Imin > -Inf
+            Jr(Jr < Imin) = Imin ;
+            Jg(Jg < Imin) = Imin ;
+            Jb(Jb < Imin) = Imin ;
+        end
+        if Imax < Inf 
+            Jr(Jr > Imax) = Imax ;
+            Jg(Jg > Imax) = Imax ;
+            Jb(Jb > Imax) = Imax ;
+            Jr = Jr / Imax ;
+            Jb = Jb / Imax ;
+            Jg = Jg / Imax ;
+        end
     end
+        
     
     % Apply affine transformations ----------------------------------------
     if rotate
@@ -562,7 +816,7 @@ for i = 1:size(FF,1)
     if colorize
         
         % Grayscale texture mappings must be made RGB 
-        if ~isRGB
+        if isSingleColor
             
             cind = round( 255 .* (Jr(:)-min(Jr(:))) ./ range(Jr(:)) ) + 1;
             cind(isnan(cind)) = 1;
