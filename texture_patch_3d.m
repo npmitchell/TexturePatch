@@ -227,7 +227,9 @@ if isFalseColor
                     fC{kk} = falseColors(kk, :) ;
                 end
             end
+            falseColors = fC ;
         end
+        Options = rmfield(Options, 'falseColors') ;
     else
         if length(IV) == 1
             error('Entered falseColor mode but only one texture channel exists (IV)')
@@ -696,9 +698,24 @@ for i = 1:size(FF,1)
                 end
             end
         end
-    elseif makeSIP
-        % todo: SIP
-        error('have not coded for SIP yet')
+    % elseif makeSIP
+    %     % todo: SIP
+    %     error('have not coded for SIP yet')
+    else
+        % No OnionLayering        
+        if isSingleColor
+            IVIv = IVI( pos(:,1), pos(:,2), pos(:,3) ) ;
+        elseif isRGB
+            % Apply MIP in each interpolant channel for R, G, and B
+            IVIvr = IVIr( pos(:,1), pos(:,2), pos(:,3) ) ;
+            IVIvg = IVIg( pos(:,1), pos(:,2), pos(:,3) ) ;
+            IVIvb = IVIb( pos(:,1), pos(:,2), pos(:,3) ) ;
+        elseif isFalseColor
+            % Apply MIP in each interpolant channel for falseColor
+            for kk = 1:length(IVIfc)
+                IVIvfc{kk} = IVIfc{kk}( pos(:,1), pos(:,2), pos(:,3) ) ;
+            end
+        end
     end
     
     % Map texture to surface image ----------------------------------------
