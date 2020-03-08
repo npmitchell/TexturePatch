@@ -515,20 +515,20 @@ else
     
     if isRGB
         
-        IVIr = griddedInterpolant(single(IV{1}), 'cubic');
-        IVIg = griddedInterpolant(single(IV{2}), 'cubic');
-        IVIb = griddedInterpolant(single(IV{3}), 'cubic');
+        IVIr = griddedInterpolant(single(IV{1}), 'cubic', 'ExtrapolationMethod', 'nearest');
+        IVIg = griddedInterpolant(single(IV{2}), 'cubic', 'ExtrapolationMethod', 'nearest');
+        IVIb = griddedInterpolant(single(IV{3}), 'cubic', 'ExtrapolationMethod', 'nearest');
         
     elseif isFalseColor
         % Each input texture channel receives its own interpolant
         IVIfc = cell(size(IV)) ;
         for kk = 1:length(IV)
-            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic');
+            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic', 'ExtrapolationMethod', 'nearest');
         end
         
     else
     
-        IVI = griddedInterpolant(single(IV), 'cubic');
+        IVI = griddedInterpolant(single(IV), 'cubic', 'ExtrapolationMethod', 'nearest');
         
     end
     
