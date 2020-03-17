@@ -25,7 +25,9 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %                   (row, column, page) format!
 %       - IV:        The 3D texture image volume.This function supports:
 %                   Grayscale:  [I1 x I2 x I3]
-%                   RGB:    { [I1 x I2 x I3] } x 3 cell array (3D)
+%                   RGB:        { [I1 x I2 x I3] } x 3 cell array (3D)
+%                   falseColor: { [I1 x I2 x I3] } x N cell array (3D),
+%                               one 3d volume for each color
 %
 %       - Options:  Structure containing the standard options for a
 %                   textured surface patch, such as EdgeColor, EdgeAlpha,
@@ -80,11 +82,25 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %
 %       - Options.VertexNormals: #Vx3 list of vertex unit normals
 %
+%       - Options.isRGB : bool, whether input arrays are R,G,B channels
+%
+%       - Options.isFalseColor : bool, whether to colorize with unique
+%       color for each channel
+%
+%       - Options.falseColors : #channels x 3 list of colors for each
+%       channel
+%
 %       - Options.Imax: float, maximum value for the data interpolant 
 %       object above which we clip the intensity
 %
 %       - Options.Imin: float, minimum value for the data interpolant 
 %       object below which we clip the intensity
+%
+%       - Options.extrapolationMethod: 
+%         'nearest' | 'linear' | 'nearest' | 'next' | 'previous' | 
+%         'pchip' | 'cubic' | 'spline' | 'makima' | 'none', 
+%       what extrapolation to use outside of the domain of data 
+%       interpolation values
 %
 %
 % See also
@@ -97,6 +113,8 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %   NPMitchell added colorize to options 12/2019
 %   NPMitchell added capability for RGB color input images
 %   NPMitchell added Imax, Imin for clipping the interpolated intensities
+%       and extrapolationMethod options
+%   NPMitchell added functionality for false color multiple channels
 
 %--------------------------------------------------------------------------
 % INPUT PROCESSING
@@ -259,6 +277,13 @@ if isfield( Options, 'Imin' )
     Options = rmfield( Options, 'Imin' );
 else
     Imin = -Inf ;
+end
+
+% Unpack extrapolationMethod
+extrapolationMethod = 'nearest' ;
+if isfield( Options, 'extrapolationMethod')
+    extrapolationMethod = Options.extrapolationMethod ;
+    Options = rmfield( Options, 'extrapolationMethod') ;
 end
 
 % Apply scaling of grayscape texture data by scalar field
@@ -441,14 +466,14 @@ end
 % Validate input texture image volume -------------------------------------
 if (nargin < 5), IV = []; end
 
-if ~isempty(IV) % Allow users to supply pre-made interpolant
+if ~isempty(IV) % Allow users to supply pre-made interpolant (no data)
     
     if isRGB
 
         if ~( iscell(IV) && (numel(IV) == 3) )
             
             error('texture_patch_3d:inputs', ...
-                'Invalid texture image input');
+                'Invalid texture image input: expected RGB cell');
             
         else
             
@@ -463,6 +488,7 @@ if ~isempty(IV) % Allow users to supply pre-made interpolant
             end
             
         end
+        
     elseif isFalseColor
         
         if ~iscell(IV)
@@ -515,20 +541,20 @@ else
     
     if isRGB
         
-        IVIr = griddedInterpolant(single(IV{1}), 'cubic', 'ExtrapolationMethod', 'nearest');
-        IVIg = griddedInterpolant(single(IV{2}), 'cubic', 'ExtrapolationMethod', 'nearest');
-        IVIb = griddedInterpolant(single(IV{3}), 'cubic', 'ExtrapolationMethod', 'nearest');
+        IVIr = griddedInterpolant(single(IV{1}), 'cubic', extrapolationMethod);
+        IVIg = griddedInterpolant(single(IV{2}), 'cubic', extrapolationMethod);
+        IVIb = griddedInterpolant(single(IV{3}), 'cubic', extrapolationMethod);
         
     elseif isFalseColor
         % Each input texture channel receives its own interpolant
         IVIfc = cell(size(IV)) ;
         for kk = 1:length(IV)
-            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic', 'ExtrapolationMethod', 'nearest');
+            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic', extrapolationMethod);
         end
         
     else
     
-        IVI = griddedInterpolant(single(IV), 'cubic', 'ExtrapolationMethod', 'nearest');
+        IVI = griddedInterpolant(single(IV), 'cubic', extrapolationMethod);
         
     end
     

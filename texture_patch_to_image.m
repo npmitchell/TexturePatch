@@ -59,9 +59,23 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %                               interpolant for each color channel
 %       - Options.isRGB:        A boolean indicating if the input image
 %                               texture volume is RGB
+%       - Options.isFalseColor: bool, whether to colorize with unique
+%                               color for each channel
 %       - Options.scaleData:    A boolean indicating if the ouput image
 %                               data should be scaled or left with their
 %                               raw values (true)
+%       - Options.falseColors : #channels x 3 list of colors for each
+%                               channel
+%       - Options.Imax:         float, maximum value for the data interpolant 
+%                               object above which we clip the intensity
+%       - Options.Imin:         float, minimum value for the data interpolant 
+%                               object below which we clip the intensity
+%       - Options.extrapolationMethod: 
+%         'nearest' | 'linear' | 'nearest' | 'next' | 'previous' | 
+%         'pchip' | 'cubic' | 'spline' | 'makima' | 'none', 
+%                               what extrapolation to use outside of the 
+%                               domain of data interpolation values
+%
 %
 %   Output Parameters:
 %       - patchIm:  The output image stack
@@ -70,7 +84,11 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %       - MIP:      The maximum intensity projection of the output stack
 %       - SIP:      The summed intensity projection of the output stack
 %
-%   by Dillon Cislo 10/25/2019
+%   by Dillon Cislo 10/25/2019, NPMitchell 2020
+%   NPMitchell added extrapolationMethod options
+%   NPMitchell added functionality for false color multiple channels
+%   Todo: add Imax, Imin for clipping the interpolated intensities
+%    
 
 %--------------------------------------------------------------------------
 % INPUT PROCESSING
@@ -221,16 +239,96 @@ else
     vN = [];
 end
 
-% Determine if input is RGB or grayscale
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Determine if input is RGB or grayscale or falseColor
 if isfield( Options, 'isRGB' )
     isRGB = Options.isRGB;
+    Options = rmfield( Options, 'isRGB' );
+    isFalseColor = false ;
+elseif isfield(Options, 'isFalseColor')
+    isFalseColor = Options.isFalseColor ;
+    Options = rmfield( Options, 'isFalseColor' ) ;
+    isRGB = false ;
 else
-    if ( iscell(I) || ( (size(TV,2) == 2) && (size(I,3) == 3) ) )
+    if ( iscell(IV) && length(IV) == 3 )
+        % Assume that if IV is a length3 cell, its channels are RGB
         isRGB = true;
+        isFalseColor = false ;
+    elseif iscell(IV)
+        isRGB = false ;
+        isFalseColor = true ;
     else
         isRGB = false;
+        isFalseColor = false ;
     end
 end
+if ~isRGB && isfield(Options, 'isFalseColor')
+    isFalseColor = Options.isFalseColor ;
+    Options = rmfield( Options, 'isFalseColor' ) ;
+end
+
+% Determine colors for falseColor option (when IV is a cell)
+if isFalseColor
+    if isfield(Options, 'falseColors')
+        falseColors = Options.falseColors ;
+        % Check that the correct number of colors is given
+        if size(falseColors, 1) ~= length(IV)
+            error('Must pass same number of colors as number of color channels in falseColor rendering mode')
+        else
+            % Convert falseColors to cell array if not done already
+            if ~iscell(falseColors)
+                fC = cell(length(IV), 1) ;
+                for kk = 1:length(IV)
+                    fC{kk} = falseColors(kk, :) ;
+                end
+            end
+            falseColors = fC ;
+        end
+        Options = rmfield(Options, 'falseColors') ;
+    else
+        if length(IV) == 1
+            error('Entered falseColor mode but only one texture channel exists (IV)')
+        elseif length(IV) == 2
+            disp('falseColors not supplied --> Using default 2-color channels of red and cyan')
+            falseColors{1} = [1, 0, 0] ;
+            falseColors{2} = [0, 1, 1] ;
+        elseif length(IV) == 3
+            falseColors{1} = [1, 0, 0] ;
+            falseColors{2} = [0, 1, 0] ;
+            falseColors{3} = [0, 0, 1] ; 
+        else
+            error('For texture spaces with more than 3 channels, please supply colors for each channel')
+        end
+    end
+end
+
+% Determine intensity limits from Options
+if isfield( Options, 'Imax' )
+    Imax = Options.Imax;
+    Options = rmfield( Options, 'Imax' );
+else
+    Imax = Inf ;
+end
+if isfield( Options, 'Imin' )
+    Imin = Options.Imin;
+    Options = rmfield( Options, 'Imin' );
+else
+    Imin = -Inf ;
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 % Determine if output data should be scaled
 if isfield( Options, 'scaleData' )
@@ -272,6 +370,13 @@ if ~isempty(I) % Allow users to supply pre-made interpolant by skipping here
             
         end
         
+    elseif isFalseColor
+        
+        if ~iscell(IV)
+            error('texture_patch_3d:inputs', ...
+                'Invalid texture image input: IV should be cell if Options.isFalseColor==true');
+        end
+        
     else
         
         if ~( (size(TV,2) == 3) && (ndims(I) == 3) )
@@ -288,16 +393,31 @@ end
 % Create the interpolant object from the input image object ---------------
 if isfield( Options, 'Interpolant' )
     
-    IIr = Options.Interpolant;
+    IVI = Options.Interpolant;
     
     if isRGB
         
-        if ~( iscell(IIr) && (numel(IIr) == 3) )
+        % Extract each interpolant object for R, G, B separately
+        if ~( iscell(IVI) && (numel(IVI) == 3) )
             error('texture_patch_to_image:inputs', ...
                 'Invalid texture image interpolation object');
         end
         
-        IIg = IIr{2}; IIb = IIr{3}; IIr = IIr{1};
+        IIg = IVI{2}; IIb = IVI{3}; IVr = IVI{1};
+        
+    elseif isFalseColor
+        
+        % Extract each interpolant object for each face color
+        if ~( iscell(IVI) && (numel(IVI) == length(IV)) )
+            error('texture_patch_3d:inputs', ...
+                'Invalid texture image interpolation object: must have same #elements as IV');
+        end
+        
+        IVIfc = cell(size(IV)) ;
+        for kk = 1:length(IV)
+            IVIfc{kk} = IVI{kk} ;
+        end
+        clearvars IVI
         
     end
         
@@ -305,13 +425,20 @@ else
     
     if isRGB
         
-        IIr = griddedInterpolant(single(I{1}), 'cubic');
-        IIg = griddedInterpolant(single(I{2}), 'cubic');
-        IIb = griddedInterpolant(single(I{3}), 'cubic');
+        IVr = griddedInterpolant(single(I{1}), 'cubic', extrapolationMethod);
+        IIg = griddedInterpolant(single(I{2}), 'cubic', extrapolationMethod);
+        IIb = griddedInterpolant(single(I{3}), 'cubic', extrapolationMethod);
+                
+    elseif isFalseColor
+        % Each input texture channel receives its own interpolant
+        IVIfc = cell(size(IV)) ;
+        for kk = 1:length(IV)
+            IVIfc{kk} = griddedInterpolant(single(IV{kk}), 'cubic', extrapolationMethod);
+        end
         
     else
     
-        IIr = griddedInterpolant(single(I), 'cubic');
+        IVI = griddedInterpolant(single(I), 'cubic', extrapolationMethod);
         
     end
     
@@ -371,7 +498,7 @@ if isRGB % RGB
     if (size(TV,2) == 2) % 2D
         
         % Red channel
-        PIR(~isnan(pixFaces)) = IIr( ...
+        PIR(~isnan(pixFaces)) = IVr( ...
             pixTexture(~isnan(pixFaces), 1), ...
             pixTexture(~isnan(pixFaces), 2) );
         
@@ -388,7 +515,7 @@ if isRGB % RGB
     else % 3D
         
         % Red channel
-        PIR(~isnan(pixFaces)) = IIr( ...
+        PIR(~isnan(pixFaces)) = IVr( ...
             pixTexture(~isnan(pixFaces), 1), ...
             pixTexture(~isnan(pixFaces), 2), ...
             pixTexture(~isnan(pixFaces), 3) );
@@ -414,6 +541,57 @@ if isRGB % RGB
     
     % Construct RGB image
     patchIm = cat( 3, PIR, PIG, PIB );
+
+elseif isFalseColor
+    
+    PIR = zeros( size(XY,1), 1 );
+    PIG = PIR; PIB = PIR;
+    
+    
+    if (size(TV,2) == 2) % 2D
+        
+        for kk = 1:length(IVIfc)
+            i2add = IVIfc{kk}( ...
+                pixTexture(~isnan(pixFaces), 1), ...
+                pixTexture(~isnan(pixFaces), 2)) ;
+            % Red channel
+            PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 1) ;
+            % Green channel
+            PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 2) ;
+            % Blue channel
+            PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 3) ;
+        end
+        
+    else % 3D
+        
+        for kk = 1:length(IVIfc)
+            i2add = IVIfc{kk}( ...
+                pixTexture(~isnan(pixFaces), 1), ...
+                pixTexture(~isnan(pixFaces), 2), ...
+                pixTexture(~isnan(pixFaces), 3) ) ;
+            % Red channel
+            PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 1) ;
+            % Green channel
+            PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 2) ;
+            % Blue channel
+            PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
+                i2add * falseColors(kk, 3) ;
+        end
+        
+    end    
+
+    % Resize to desired output dimensions
+    PIR = reshape( PIR, imSize );
+    PIG = reshape( PIG, imSize );
+    PIB = reshape( PIB, imSize );
+    
+    % Construct RGB image
+    patchIm = cat( 3, PIR, PIG, PIB );
     
 else % Grayscale
     
@@ -421,13 +599,13 @@ else % Grayscale
     
     if (size(TV,2) == 2) % 2D
         
-        patchIm(~isnan(pixFaces)) = IIr( ...
+        patchIm(~isnan(pixFaces)) = IVI( ...
             pixTexture(~isnan(pixFaces), 1), ...
             pixTexture(~isnan(pixFaces), 2) );
         
     else % 3D
         
-        patchIm(~isnan(pixFaces)) = IIr( ...
+        patchIm(~isnan(pixFaces)) = IVI( ...
             pixTexture(~isnan(pixFaces), 1), ...
             pixTexture(~isnan(pixFaces), 2), ...
             pixTexture(~isnan(pixFaces), 3 ));
@@ -488,7 +666,7 @@ if makeOnion
     if makeNegLayers
         
         % The stack holding the negative layers
-        if isRGB
+        if isRGB || isFalseColor
             mStack = zeros( [ imSize 3 abs(numLayers(2)) ] );
         else
             mStack = zeros( [ imSize abs(numLayers(2)) ] );
@@ -518,7 +696,7 @@ if makeOnion
                 if (size(TV,2) == 2) % 2D
                     
                     % Red channel
-                    LIR(~isnan(pixFaces)) = IIr( ...
+                    LIR(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2) );
                     
@@ -535,7 +713,7 @@ if makeOnion
                 else % 3D
                     
                     % Red channel
-                    LIR(~isnan(pixFaces)) = IIr( ...
+                    LIR(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2), ...
                         pixTexture(~isnan(pixFaces), 3) );
@@ -558,23 +736,74 @@ if makeOnion
                 LIR = reshape( LIR, imSize );
                 LIG = reshape( LIG, imSize );
                 LIB = reshape( LIB, imSize );
-                
+                                                
                 % Add the current layer to the image stack
                 mStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
+
+            elseif isFalseColor
+
+                LIR = zeros( size(XY,1), 1 );
+                LIG = LIR; LIB = LIR;
+
+
+                if (size(TV,2) == 2) % 2D
+
+                    for kk = 1:length(IVIfc)
+                        i2add = IVIfc{kk}( ...
+                            pixTexture(~isnan(pixFaces), 1), ...
+                            pixTexture(~isnan(pixFaces), 2)) ;
+                        % Red channel
+                        LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 1) ;
+                        % Green channel
+                        LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 2) ;
+                        % Blue channel
+                        LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 3) ;
+                    end
+
+                else % 3D
+
+                    for kk = 1:length(IVIfc)
+                        i2add = IVIfc{kk}( ...
+                            pixTexture(~isnan(pixFaces), 1), ...
+                            pixTexture(~isnan(pixFaces), 2), ...
+                            pixTexture(~isnan(pixFaces), 3) ) ;
+                        % Red channel
+                        LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 1) ;
+                        % Green channel
+                        LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 2) ;
+                        % Blue channel
+                        LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 3) ;
+                    end
+
+                end    
+
+                % Resize to desired output dimensions
+                LIR = reshape( LIR, imSize );
+                LIG = reshape( LIG, imSize );
+                LIB = reshape( LIB, imSize );
                 
+                % Construct RGB image
+                patchIm = cat( 3, LIR, LIG, LIB );
+
             else % Grayscale
                 
                 layerIm = zeros( size(XY,1), 1 );
                 
                 if size(TV,2) == 2 % 2D
                     
-                    layerIm(~isnan(pixFaces)) = IIr( ...
+                    layerIm(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2) );
                     
                 else % 3D
                     
-                    layerIm(~isnan(pixFaces)) = IIr( ...
+                    layerIm(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2), ...
                         pixTexture(~isnan(pixFaces), 3) );
@@ -591,7 +820,7 @@ if makeOnion
             
         end
         
-        if isRGB
+        if isRGB || isFalseColor
             
             % Flip stack to reflect proper spatial ordering
             mStack = flip( mStack, 4 );
@@ -644,7 +873,7 @@ if makeOnion
                 if (size(TV,2) == 2) % 2D
                     
                     % Red channel
-                    LIR(~isnan(pixFaces)) = IIr( ...
+                    LIR(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2) );
                     
@@ -661,7 +890,7 @@ if makeOnion
                 else % 3D
                     
                     % Red channel
-                    LIR(~isnan(pixFaces)) = IIr( ...
+                    LIR(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2), ...
                         pixTexture(~isnan(pixFaces), 3) );
@@ -688,19 +917,70 @@ if makeOnion
                 % Add the current layer to the image stack
                 pStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
                 
+            elseif isFalseColor
+
+                LIR = zeros( size(XY,1), 1 );
+                LIG = LIR; LIB = LIR;
+
+
+                if (size(TV,2) == 2) % 2D
+
+                    for kk = 1:length(IVIfc)
+                        i2add = IVIfc{kk}( ...
+                            pixTexture(~isnan(pixFaces), 1), ...
+                            pixTexture(~isnan(pixFaces), 2)) ;
+                        % Red channel
+                        LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 1) ;
+                        % Green channel
+                        LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 2) ;
+                        % Blue channel
+                        LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 3) ;
+                    end
+
+                else % 3D
+
+                    for kk = 1:length(IVIfc)
+                        i2add = IVIfc{kk}( ...
+                            pixTexture(~isnan(pixFaces), 1), ...
+                            pixTexture(~isnan(pixFaces), 2), ...
+                            pixTexture(~isnan(pixFaces), 3) ) ;
+                        % Red channel
+                        LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 1) ;
+                        % Green channel
+                        LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 2) ;
+                        % Blue channel
+                        LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
+                            i2add * falseColors(kk, 3) ;
+                    end
+
+                end    
+
+                % Resize to desired output dimensions
+                LIR = reshape( LIR, imSize );
+                LIG = reshape( LIG, imSize );
+                LIB = reshape( LIB, imSize );
+                
+                % Construct RGB image
+                patchIm = cat( 3, LIR, LIG, LIB );
+
             else % Grayscale
                 
                 layerIm = zeros( size(XY,1), 1 );
                 
                 if size(TV,2) == 2
                     
-                    layerIm(~isnan(pixFaces)) = IIr( ...
+                    layerIm(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2) );
                     
                 else
                     
-                    layerIm(~isnan(pixFaces)) = IIr( ...
+                    layerIm(~isnan(pixFaces)) = IVI( ...
                         pixTexture(~isnan(pixFaces), 1), ...
                         pixTexture(~isnan(pixFaces), 2), ...
                         pixTexture(~isnan(pixFaces), 3) );
@@ -718,7 +998,7 @@ if makeOnion
         end
         
         % Concatenate the positive layers and data layer zero
-        if isRGB
+        if isRGB || isFaseColor
             patchIm = cat( 4, patchIm, pStack );
         else
         	patchIm = cat( 3, patchIm, pStack );
@@ -734,7 +1014,7 @@ end
 
 % Calculate output stack MIP ----------------------------------------------
 if nargin > 3
-    if isRGB
+    if isRGB || isFalseColor
         if scaleData
             MIP = cat( 3, ...
                 mat2gray( max( squeeze(patchIm(:,:,1,:)), [], 3 ) ), ...
