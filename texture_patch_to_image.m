@@ -317,8 +317,12 @@ else
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
-
+% Unpack extrapolationMethod
+extrapolationMethod = 'nearest' ;
+if isfield( Options, 'extrapolationMethod')
+    extrapolationMethod = Options.extrapolationMethod ;
+    Options = rmfield( Options, 'extrapolationMethod') ;
+end
 
 
 
