@@ -101,6 +101,50 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %         'pchip' | 'cubic' | 'spline' | 'makima' | 'none', 
 %       what extrapolation to use outside of the domain of data 
 %       interpolation values
+% 
+%       - Options.smoothIter : int, how many iterations of Laplcaian 
+%       smoothing to apply before normal displacement       
+%       
+%       - Options.numLayers : length 2 array of ints, number of layers in
+%       positive, negative directions for MIP option
+%
+%       - Options.layerSpacing : float, distance between layers in texture
+%       space pixel coordinate units
+%
+% Example Usage
+% -------------
+% pks = peaks ;
+% [x,y] = meshgrid(1:size(pks, 1), 1:size(pks, 2)) ;
+% FF = delaunay([x(:), y(:)]) ;
+% VV = [x(:), y(:), pks(:)] ;
+% FF = reorient_facets( VV, FF );
+% minz = min(pks(:)) ;
+% TV = VV - [1, 1, minz]; % texture vertices same as vertices but offset 
+% TF = FF ; % texture faces same as faces
+% tmp = load('spiralVol.mat');
+% im = double(tmp.spiralVol) ;
+% [xsz, ysz] = size(pks) ;
+% nz = round(max(pks(:)) - min(pks(:))) ;
+% IV = ones(size(pks, 1), size(pks, 2), nz) ;
+% for zz = 1:size(IV, 3)
+%     IV(:, :, zz) = zz ;
+% end
+% % Introduce some noise to show effects of MIPs
+% IV = IV + 3 * rand(size(IV)) ;
+% % Now consider different amounts of MIP
+% for qq = [1, 2, 4] 
+%     Options.numLayers = [qq, qq] ;
+%     Options.layerSpacing = 4 ;
+%     Options.PSize = 10;
+%     Options.EdgeColor = 'none';
+%     texture_patch_3d(FF, VV, TF, TV, IV, Options)
+%     axis equal
+%     set(gcf, 'visible', 'on')
+%     % colormap viridis
+%     colorbar()
+%     view(3)
+%     waitfor(gcf)
+% end
 %
 %
 % See also
@@ -111,10 +155,13 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %   NPMitchell added Rotation, Translation, & Dilation options 09/2019
 %   NPMitchell grouped surfaces into a Parent container for speedup 09/2019
 %   NPMitchell added colorize to options 12/2019
-%   NPMitchell added capability for RGB color input images
+%   NPMitchell & Dillon Cislo added capability for RGB color input images
 %   NPMitchell added Imax, Imin for clipping the interpolated intensities
 %       and extrapolationMethod options
 %   NPMitchell added functionality for false color multiple channels
+%   NPMitchell added MIP functionality, where faces are advected so that
+%       vertices move along vertex normals (so advected surface stays 
+%       connected)
 
 %--------------------------------------------------------------------------
 % INPUT PROCESSING
@@ -417,7 +464,15 @@ if isfield( Options, 'VertexNormals' )
 else
     VN = per_vertex_normals( VV, FF, 'Weighting', 'angle' );
 end
-        
+
+% Determine the onion layer spacing
+if isfield( Options, 'layerSpacing' )
+    layerSpacing = Options.layerSpacing ;
+    Options = rmfield(Options, 'layerSpacing') ;
+else
+    layerSpacing = 5;
+end
+
 % Determine if any onion layers are to be produced
 makePosLayers = false;
 makeNegLayers = false;
@@ -426,19 +481,30 @@ if isfield( Options, 'numLayers' )
     numLayers = Options.numLayers;
     if (abs(numLayers(1)) > 0), makePosLayers = true; end
     if (abs(numLayers(2)) > 0), makeNegLayers = true; end
-    if ( makePosLayers || makeNegLayers ), makeMIP = true; end
+    if ( makePosLayers || makeNegLayers )
+        makeMIP = true; 
+        disp('Making MIP on mesh in 3d')
+    end
     numLayers = Options.numLayers ;
     Options = rmfield(Options, 'numLayers') ;
 else
     numLayers = [0 0];
 end
 
-% Determine the onion layer spacing
-if isfield( Options, 'layerSpacing' )
-    layerSpacing = Options.layerSpacing ;
-    Options = rmfield(Options, 'layerSpacing') ;
+% Texture mesh vertex unit normals
+if isfield( Options, 'TextureVertexNormals' )
+    TVN = Options.VertexNormals;
+    Options.rmfield( Options, 'TextureVertexNormals');
+    
+    if ~isequal(size(TVN), (TV))
+        error('texture_patch_3d:inputs', ...
+                'Invalid texture vertex normal input');
+    end
 else
-    layerSpacing = 5;
+    % If we are doing any layering, must find texture space vertex normals
+    if makeMIP
+        TVN = per_vertex_normals( TV, TF, 'Weighting', 'angle' );
+    end
 end
 
 % Determine how many iterations of Laplacian mesh smoothing to run on the
@@ -653,6 +719,11 @@ for i = 1:size(FF,1)
     vn = cat(3, reshape(vn(:,1), [2 2]), reshape(vn(:,2), [2 2]), ...
         reshape(vn(:,3), [2 2]));
     
+    % Assemble texture vertex normal list -- not needed right now
+    % tvn = [ TVN( TF(i,:), : ); TVN( TF(i,3), : ) ];
+    % tvn = cat(3, reshape(tvn(:,1), [2 2]), reshape(tvn(:,2), [2 2]), ...
+    %     reshape(tvn(:,3), [2 2]));
+    
     % Calculate the texture interpolation coordinatex ---------------------
     pos(:,1) = xyz(1,1)*lambda1 + xyz(2,1)*lambda2 + xyz(3,1)*lambda3;
     pos(:,2) = xyz(1,2)*lambda1 + xyz(2,2)*lambda2 + xyz(3,2)*lambda3;
@@ -663,9 +734,9 @@ for i = 1:size(FF,1)
     if makeMIP 
         % compute the offset vector interpolated over the face 
         % NOTE: these are a grid of normal vectors interpolated on the face
-        offv(:, 1) = VN(FF(i,1),1)*lambda1 + VN(FF(i,2),1)*lambda2 + VN(FF(i,3),1)*lambda3 ;
-        offv(:, 2) = VN(FF(i,1),2)*lambda1 + VN(FF(i,2),2)*lambda2 + VN(FF(i,3),2)*lambda3 ;
-        offv(:, 3) = VN(FF(i,1),3)*lambda1 + VN(FF(i,2),3)*lambda2 + VN(FF(i,3),3)*lambda3 ;
+        offv(:, 1) = TVN(TF(i,1),1)*lambda1 + TVN(TF(i,2),1)*lambda2 + TVN(TF(i,3),1)*lambda3 ;
+        offv(:, 2) = TVN(TF(i,1),2)*lambda1 + TVN(TF(i,2),2)*lambda2 + TVN(TF(i,3),2)*lambda3 ;
+        offv(:, 3) = TVN(TF(i,1),3)*lambda1 + TVN(TF(i,2),3)*lambda2 + TVN(TF(i,3),3)*lambda3 ;
         if isSingleColor
             IVIv = IVI( pos(:,1), pos(:,2), pos(:,3) ) ;
             if makePosLayers
