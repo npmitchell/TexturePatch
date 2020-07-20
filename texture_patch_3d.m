@@ -297,7 +297,9 @@ if isFalseColor
         Options = rmfield(Options, 'falseColors') ;
     else
         if length(IV) == 1
-            error('Entered falseColor mode but only one texture channel exists (IV)')
+            disp('Entered falseColor mode but only one texture channel exists (IV)')
+            isFalseColor = false ;
+            IV = IV{1} ;
         elseif length(IV) == 2
             disp('falseColors not supplied --> Using default 2-color channels of red and cyan')
             falseColors{1} = [1, 0, 0] ;

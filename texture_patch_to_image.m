@@ -1,5 +1,5 @@
 function [ patchIm, imref, zeroID, MIP, SIP ] = ...
-    texture_patch_to_image( FF, VV, TF, TV, I, Options )
+    texture_patch_to_image( FF, VV, TF, TV, IV, Options )
 %TEXTURE_PATCH_TO_IMAGE This function generates an image from the texture
 %mapping of a mesh triangulation with respect to an texture volume I. One 
 %input is the "physical" or "real-space" mesh triangulation. This
@@ -12,7 +12,7 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %different number of vertices (i.e. re-using the texturing from a single
 %template face for multiple physical faces).
 %
-%   texture_patch_to_image( FF, VV, TF, TV, I, Options )
+%   texture_patch_to_image( FF, VV, TF, TV, IV, Options )
 %
 %   Input Parameters:
 %       - FF:       #Fx3 face connectivity list of the physical mesh
@@ -23,7 +23,7 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %                   as real pixel positions in the texture image or as a
 %                   range [0..1]. D = (2,3). NOTE: TV is provided in
 %                   (row, column)/(row, column, page) format
-%       - I:        The texture image volume. This function supports:
+%       - IV:        The texture image volume. This function supports:
 %                   Grayscale:  [I1 x I2] (2D)
 %                   Grayscale:  [I1 x I2 x I3] (3D)
 %                   RGB:    [I1 x I2 x 3] (2D)
@@ -124,7 +124,7 @@ end
 % Re-scale texture vertices to true pixel positions if necessary
 if max(TV(:)) < 2 
     for i = size(TV,2)
-        TV(:,i) = (size(I,i)-1) .* TV(:,i) + 1;
+        TV(:,i) = (size(IV,i)-1) .* TV(:,i) + 1;
     end
 end
 
@@ -250,6 +250,7 @@ elseif isfield(Options, 'isFalseColor')
     Options = rmfield( Options, 'isFalseColor' ) ;
     isRGB = false ;
 else
+    disp('determining if isFalseColor or isRGB')
     if ( iscell(IV) && length(IV) == 3 )
         % Assume that if IV is a length3 cell, its channels are RGB
         isRGB = true;
@@ -287,7 +288,9 @@ if isFalseColor
         Options = rmfield(Options, 'falseColors') ;
     else
         if length(IV) == 1
-            error('Entered falseColor mode but only one texture channel exists (IV)')
+            disp('There is only one channel --> unpack it')
+            IV = IV{1} ;
+            isFalseColor = false ;
         elseif length(IV) == 2
             disp('falseColors not supplied --> Using default 2-color channels of red and cyan')
             falseColors{1} = [1, 0, 0] ;
@@ -342,28 +345,28 @@ else
 end
 
 % Validate the input texture image volume ---------------------------------
-if ~isempty(I) % Allow users to supply pre-made interpolant by skipping here
+if ~isempty(IV) % Allow users to supply pre-made interpolant by skipping here
     
     if isRGB
         
         if size(TV,2) == 2 % 2D
             
-            if ~( (ndims(I) == 3) && (size(I,3) == 3) )
+            if ~( (ndims(IV) == 3) && (size(IV,3) == 3) )
                 error('texture_patch_to_image:inputs', ...
                     'Invalid texture image input');
             end
             
         else % 3D
             
-            if ~( iscell(I) && (numel(I) == 3) )
+            if ~( iscell(IV) && (numel(IV) == 3) )
                 error('texture_patch_to_image:inputs', ...
                     'Invalid texture image input');
             else
                 
-               goodI = (ndims(I{1}) == 3) && ...
-                    isequal(size(I{1}), size(I{2})) && ...
-                    isequal(size(I{1}), size(I{3})) && ...
-                    isequal(size(I{2}), size(I{3}));
+               goodI = (ndims(IV{1}) == 3) && ...
+                    isequal(size(IV{1}), size(IV{2})) && ...
+                    isequal(size(IV{1}), size(IV{3})) && ...
+                    isequal(size(IV{2}), size(IV{3}));
                 
                 if ~goodI
                     error('texture_patch_to_image:inputs', ...
@@ -383,8 +386,8 @@ if ~isempty(I) % Allow users to supply pre-made interpolant by skipping here
         
     else
         
-        if ~( (size(TV,2) == 3) && (ndims(I) == 3) )
-            if ~( (size(TV,2) == 2) && ismatrix(I) )
+        if ~( (size(TV,2) == 3) && (ndims(IV) == 3) )
+            if ~( (size(TV,2) == 2) && ismatrix(IV) )
                 error('texture_patch_to_image:inputs', ...
                     'Invalid texture vertex/image input');
             end
@@ -429,9 +432,9 @@ else
     
     if isRGB
         
-        IVr = griddedInterpolant(single(I{1}), 'cubic', extrapolationMethod);
-        IIg = griddedInterpolant(single(I{2}), 'cubic', extrapolationMethod);
-        IIb = griddedInterpolant(single(I{3}), 'cubic', extrapolationMethod);
+        IVr = griddedInterpolant(single(IV{1}), 'cubic', extrapolationMethod);
+        IIg = griddedInterpolant(single(IV{2}), 'cubic', extrapolationMethod);
+        IIb = griddedInterpolant(single(IV{3}), 'cubic', extrapolationMethod);
                 
     elseif isFalseColor
         % Each input texture channel receives its own interpolant
@@ -442,7 +445,7 @@ else
         
     else
     
-        IVI = griddedInterpolant(single(I), 'cubic', extrapolationMethod);
+        IVI = griddedInterpolant(single(IV), 'cubic', extrapolationMethod);
         
     end
     
@@ -1002,7 +1005,7 @@ if makeOnion
         end
         
         % Concatenate the positive layers and data layer zero
-        if isRGB || isFaseColor
+        if isRGB || isFalseColor
             patchIm = cat( 4, patchIm, pStack );
         else
         	patchIm = cat( 3, patchIm, pStack );
