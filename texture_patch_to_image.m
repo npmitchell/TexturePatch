@@ -192,7 +192,11 @@ makeNegLayers = false;
 makeOnion = false;
 if isfield( Options, 'numLayers' )
     numLayers = Options.numLayers;
-    if (abs(numLayers(1)) > 0), makePosLayers = true; end
+    if (numLayers(1) > 0)
+        makePosLayers = true ;
+    elseif numLayers(1) < 0
+        error('number of layers in positive direction is negative')
+    end
     if (abs(numLayers(2)) > 0), makeNegLayers = true; end
     if ( makePosLayers || makeNegLayers ), makeOnion = true; end
 else
@@ -207,6 +211,11 @@ end
 % Determine the onion layer spacing
 if isfield( Options, 'layerSpacing' )
     layerSpacing = Options.layerSpacing;
+    try
+        assert(length(layerSpacing)==1)
+    catch
+        error('Options.layerSpacing must be an int/float value')
+    end
 else
     layerSpacing = 5;
 end
@@ -273,17 +282,23 @@ if isFalseColor
     if isfield(Options, 'falseColors')
         falseColors = Options.falseColors ;
         % Check that the correct number of colors is given
-        if size(falseColors, 1) ~= length(IV)
-            error('Must pass same number of colors as number of color channels in falseColor rendering mode')
-        else
-            % Convert falseColors to cell array if not done already
-            if ~iscell(falseColors)
-                fC = cell(length(IV), 1) ;
-                for kk = 1:length(IV)
-                    fC{kk} = falseColors(kk, :) ;
-                end
+        if iscell(falseColors)
+            if length(falseColors) ~= length(IV)
+                error('Must pass same number of colors as number of color channels in falseColor rendering mode')
             end
-            falseColors = fC ;
+        else
+            if size(falseColors, 1) ~= length(IV)
+                error('Must pass same number of colors as number of color channels in falseColor rendering mode')
+            else
+                % Convert falseColors to cell array if not done already
+                if ~iscell(falseColors)
+                    fC = cell(length(IV), 1) ;
+                    for kk = 1:length(IV)
+                        fC{kk} = falseColors(kk, :) ;
+                    end
+                end
+                falseColors = fC ;
+            end
         end
         Options = rmfield(Options, 'falseColors') ;
     else
@@ -563,13 +578,13 @@ elseif isFalseColor
                 pixTexture(~isnan(pixFaces), 2)) ;
             % Red channel
             PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 1) ;
+                i2add * falseColors{kk}(1) ;
             % Green channel
             PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 2) ;
+                i2add * falseColors{kk}(2) ;
             % Blue channel
             PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 3) ;
+                i2add * falseColors{kk}(3) ;
         end
         
     else % 3D
@@ -581,13 +596,13 @@ elseif isFalseColor
                 pixTexture(~isnan(pixFaces), 3) ) ;
             % Red channel
             PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 1) ;
+                i2add * falseColors{kk}(1) ;
             % Green channel
             PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 2) ;
+                i2add * falseColors{kk}(2) ;
             % Blue channel
             PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 3) ;
+                i2add * falseColors{kk}(3) ;
         end
         
     end    
@@ -779,13 +794,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 3) ) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 end    
@@ -850,7 +865,7 @@ if makeOnion
     if makePosLayers
         
         % The stack holding the positive layers
-        if isRGB
+        if isRGB || isFalseColor
             pStack = zeros( [ imSize 3 abs(numLayers(1)) ] );
         else
             pStack = zeros( [ imSize abs(numLayers(1)) ] );
@@ -956,13 +971,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 3) ) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 end    
@@ -974,6 +989,9 @@ if makeOnion
                 
                 % Construct RGB image
                 patchIm = cat( 3, LIR, LIG, LIB );
+                
+                % Add the current layer to the image stack
+                pStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
 
             else % Grayscale
                 
