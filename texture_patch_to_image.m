@@ -64,8 +64,9 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %       - Options.scaleData:    A boolean indicating if the ouput image
 %                               data should be scaled or left with their
 %                               raw values (true)
-%       - Options.falseColors : #channels x 3 list of colors for each
-%                               channel
+%       - Options.falseColors : length #channels cell, listing colors for 
+%                               each channel, or #channels x 3 array to be 
+%                               converted to cell
 %       - Options.Imax:         float, maximum value for the data interpolant 
 %                               object above which we clip the intensity
 %       - Options.Imin:         float, minimum value for the data interpolant 
@@ -75,6 +76,7 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %         'pchip' | 'cubic' | 'spline' | 'makima' | 'none', 
 %                               what extrapolation to use outside of the 
 %                               domain of data interpolation values
+%                               (default = 'nearest')
 %
 %
 %   Output Parameters:
@@ -563,13 +565,13 @@ elseif isFalseColor
                 pixTexture(~isnan(pixFaces), 2)) ;
             % Red channel
             PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 1) ;
+                i2add * falseColors{kk}(1) ;
             % Green channel
             PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 2) ;
+                i2add * falseColors{kk}(2) ;
             % Blue channel
             PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 3) ;
+                i2add * falseColors{kk}(3) ;
         end
         
     else % 3D
@@ -581,13 +583,13 @@ elseif isFalseColor
                 pixTexture(~isnan(pixFaces), 3) ) ;
             % Red channel
             PIR(~isnan(pixFaces)) = PIR(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 1) ;
+                i2add * falseColors{kk}(1) ;
             % Green channel
             PIG(~isnan(pixFaces)) = PIG(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 2) ;
+                i2add * falseColors{kk}(2) ;
             % Blue channel
             PIB(~isnan(pixFaces)) = PIB(~isnan(pixFaces)) + ...
-                i2add * falseColors(kk, 3) ;
+                i2add * falseColors{kk}(3) ;
         end
         
     end    
@@ -761,13 +763,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 2)) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 else % 3D
@@ -779,13 +781,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 3) ) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 end    
@@ -796,7 +798,7 @@ if makeOnion
                 LIB = reshape( LIB, imSize );
                 
                 % Construct RGB image
-                patchIm = cat( 3, LIR, LIG, LIB );
+                mStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
 
             else % Grayscale
                 
@@ -850,7 +852,7 @@ if makeOnion
     if makePosLayers
         
         % The stack holding the positive layers
-        if isRGB
+        if isRGB || isFalseColor
             pStack = zeros( [ imSize 3 abs(numLayers(1)) ] );
         else
             pStack = zeros( [ imSize abs(numLayers(1)) ] );
@@ -938,13 +940,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 2)) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 else % 3D
@@ -956,13 +958,13 @@ if makeOnion
                             pixTexture(~isnan(pixFaces), 3) ) ;
                         % Red channel
                         LIR(~isnan(pixFaces)) = LIR(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 1) ;
+                            i2add * falseColors{kk}(1) ;
                         % Green channel
                         LIG(~isnan(pixFaces)) = LIG(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 2) ;
+                            i2add * falseColors{kk}(2) ;
                         % Blue channel
                         LIB(~isnan(pixFaces)) = LIB(~isnan(pixFaces)) + ...
-                            i2add * falseColors(kk, 3) ;
+                            i2add * falseColors{kk}(3) ;
                     end
 
                 end    
@@ -973,7 +975,7 @@ if makeOnion
                 LIB = reshape( LIB, imSize );
                 
                 % Construct RGB image
-                patchIm = cat( 3, LIR, LIG, LIB );
+                pStack(:, :, :, i) = cat( 3, LIR, LIG, LIB );
 
             else % Grayscale
                 
@@ -1005,6 +1007,8 @@ if makeOnion
         end
         
         % Concatenate the positive layers and data layer zero
+        % Note that the patchIm already includes negative stacks and
+        % the zero layer
         if isRGB || isFalseColor
             patchIm = cat( 4, patchIm, pStack );
         else

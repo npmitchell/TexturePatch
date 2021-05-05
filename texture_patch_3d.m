@@ -103,7 +103,12 @@ function texture_patch_3d( FF, VV, TF, TV, IV, Options)
 %       interpolation values
 % 
 %       - Options.smoothIter : int, how many iterations of Laplcaian 
-%       smoothing to apply before normal displacement       
+%       smoothing to apply before normal displacement. This smooths
+%       vertices JUST for the sake of getting smooth normal vectors along
+%       which to march for MIPs
+%
+%       - Options.smoothLambda : float, diffusion constant for smoothing 
+%       performed on vertices to get smooth normal vectors.
 %       
 %       - Options.numLayers : length 2 array of ints, number of layers in
 %       positive, negative directions for MIP option
@@ -210,7 +215,7 @@ if ( max(TV(:)) < 2 )
 end
 
 % Validate texture patch options ------------------------------------------
-if (nargin < 6), Options = Struct(); end
+if (nargin < 6), Options = struct(); end
 
 % Patch FaceColor MUST be a texture.
 Options.FaceColor = 'texturemap';
@@ -493,6 +498,42 @@ else
     numLayers = [0 0];
 end
 
+% Determine how many iterations of Laplacian mesh smoothing to run on the
+% input mesh prior to vertex displacement along normal vectors
+if isfield( Options, 'smoothIter' )
+    smoothIter = Options.smoothIter;
+    Options = rmfield(Options, 'smoothIter') ;
+    % Check that GPToolBox is on the path
+    if smoothIter > 0
+        if isfield( Options, 'TextureVertexNormals' )
+            if ~isempty(Options.TextureVertexNormals)
+                error(['Mesh smoothing is commanded via smoothIter, ', ...
+                    'but custom normals are supplied. ', ...
+                    'Set smoothIter=0 or use let ', ...
+                    'texture_patch_3d compute smoothed normals.'])
+            end
+            Options = rmfield(Options, 'TextureVertexNormals') ;
+        end
+        if ~exist('laplacian_smooth', 'file')
+            warning('GPToolBox was not found. Using default settings.');
+            smoothMesh = false;
+        else
+            smoothMesh = true;
+        end
+    else
+        smoothMesh = false;
+    end
+else
+    smoothMesh = false;
+end
+
+if isfield( Options, 'smoothLambda')
+    smoothLambda = Options.smoothLambda ;
+    Options = rmfield(Options, 'smoothLambda') ;
+else
+    smoothLambda = 0.1 ;
+end
+
 % Texture mesh vertex unit normals
 if isfield( Options, 'TextureVertexNormals' )
     TVN = Options.VertexNormals;
@@ -505,29 +546,16 @@ if isfield( Options, 'TextureVertexNormals' )
 else
     % If we are doing any layering, must find texture space vertex normals
     if makeMIP
-        TVN = per_vertex_normals( TV, TF, 'Weighting', 'angle' );
-    end
-end
-
-% Determine how many iterations of Laplacian mesh smoothing to run on the
-% input mesh prior to vertex displacement along normal vectors
-if isfield( Options, 'smoothIter' )
-    smoothIter = Options.smoothIter;
-    % Check that GPToolBox is on the path
-    if smoothIter > 0
-        if ~exist('laplacian_smooth', 'file')
-            warning('GPToolBox was not found. Using default settings.');
-            smoothIter = 0;
-            smoothMesh = false;
-        else
-            smoothMesh = true;
+        if smoothMesh
+            TextureTri = triangulation(TF, TV) ;
+            bdyIDx = unique(TextureTri.freeBoundary);
+            smoothV = laplacian_smooth( TV, TF, 'cotan', ...
+                bdyIDx, smoothLambda, 'implicit', TV, smoothIter );
+            TVN = per_vertex_normals( smoothV, TF, 'Weighting', 'angle' );
+        else 
+            TVN = per_vertex_normals( TV, TF, 'Weighting', 'angle' );
         end
-    else
-        smoothMesh = false;
     end
-else
-    smoothIter = 0;
-    smoothMesh = false;
 end
 
 
