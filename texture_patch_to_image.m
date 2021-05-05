@@ -194,7 +194,11 @@ makeNegLayers = false;
 makeOnion = false;
 if isfield( Options, 'numLayers' )
     numLayers = Options.numLayers;
-    if (abs(numLayers(1)) > 0), makePosLayers = true; end
+    if (numLayers(1) > 0)
+        makePosLayers = true ;
+    elseif numLayers(1) < 0
+        error('number of layers in positive direction is negative')
+    end
     if (abs(numLayers(2)) > 0), makeNegLayers = true; end
     if ( makePosLayers || makeNegLayers ), makeOnion = true; end
 else
@@ -209,6 +213,11 @@ end
 % Determine the onion layer spacing
 if isfield( Options, 'layerSpacing' )
     layerSpacing = Options.layerSpacing;
+    try
+        assert(length(layerSpacing)==1)
+    catch
+        error('Options.layerSpacing must be an int/float value')
+    end
 else
     layerSpacing = 5;
 end
@@ -275,17 +284,23 @@ if isFalseColor
     if isfield(Options, 'falseColors')
         falseColors = Options.falseColors ;
         % Check that the correct number of colors is given
-        if size(falseColors, 1) ~= length(IV)
-            error('Must pass same number of colors as number of color channels in falseColor rendering mode')
-        else
-            % Convert falseColors to cell array if not done already
-            if ~iscell(falseColors)
-                fC = cell(length(IV), 1) ;
-                for kk = 1:length(IV)
-                    fC{kk} = falseColors(kk, :) ;
-                end
+        if iscell(falseColors)
+            if length(falseColors) ~= length(IV)
+                error('Must pass same number of colors as number of color channels in falseColor rendering mode')
             end
-            falseColors = fC ;
+        else
+            if size(falseColors, 1) ~= length(IV)
+                error('Must pass same number of colors as number of color channels in falseColor rendering mode')
+            else
+                % Convert falseColors to cell array if not done already
+                if ~iscell(falseColors)
+                    fC = cell(length(IV), 1) ;
+                    for kk = 1:length(IV)
+                        fC{kk} = falseColors(kk, :) ;
+                    end
+                end
+                falseColors = fC ;
+            end
         end
         Options = rmfield(Options, 'falseColors') ;
     else
@@ -976,6 +991,10 @@ if makeOnion
                 
                 % Construct RGB image
                 pStack(:, :, :, i) = cat( 3, LIR, LIG, LIB );
+                patchIm = cat( 3, LIR, LIG, LIB );
+                
+                % Add the current layer to the image stack
+                pStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
 
             else % Grayscale
                 
