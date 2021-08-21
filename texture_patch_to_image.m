@@ -11,6 +11,9 @@ function [ patchIm, imref, zeroID, MIP, SIP ] = ...
 %may be simply connected while the virtual mesh is multiply connected) or a
 %different number of vertices (i.e. re-using the texturing from a single
 %template face for multiple physical faces).
+% 
+% Note: To acquire different layers for different channels, do so by
+% calling this function once for each channel separately.
 %
 %   texture_patch_to_image( FF, VV, TF, TV, IV, Options )
 %
@@ -200,7 +203,10 @@ if isfield( Options, 'numLayers' )
         error('number of layers in positive direction is negative')
     end
     if (abs(numLayers(2)) > 0), makeNegLayers = true; end
-    if ( makePosLayers || makeNegLayers ), makeOnion = true; end
+    if ( makePosLayers || makeNegLayers )
+        makeOnion = true; 
+        disp('texture_patch_to_image(): creating onion layers')
+    end
 else
     numLayers = [0 0];
 end
@@ -241,6 +247,12 @@ if isfield( Options, 'smoothIter' )
 else
     smoothIter = 0;
     smoothMesh = false;
+end
+
+if isfield( Options, 'smoothLambda')
+    smoothLambda = Options.smoothLambda ;
+else
+    smoothLambda = 0.1 ;
 end
 
 % Process texture vertex normals
@@ -653,7 +665,7 @@ if makeOnion
         % to avoid mesh collapse
         bdyIDx = unique(realTri.freeBoundary);
         smoothV = laplacian_smooth( TV, TF, 'cotan', ...
-            bdyIDx, 0.1, 'implicit', TV, smoothIter );
+            bdyIDx, smoothLambda, 'implicit', TV, smoothIter );
     else
         smoothV = textureTri.Points;
     end
@@ -991,7 +1003,7 @@ if makeOnion
                 
                 % Construct RGB image
                 pStack(:, :, :, i) = cat( 3, LIR, LIG, LIB );
-                patchIm = cat( 3, LIR, LIG, LIB );
+                % patchIm = cat( 3, LIR, LIG, LIB );
                 
                 % Add the current layer to the image stack
                 pStack(:,:,:,i) = cat( 3, LIR, LIG, LIB );
@@ -1067,7 +1079,7 @@ end
 
 % Calculate output stack SIP ----------------------------------------------
 if nargin > 4
-    if isRGB
+    if isRGB || isFalseColor
         if scaleData
             SIP = cat( 3, ...
                 mat2gray( sum( squeeze(patchIm(:,:,1,:)), 3 ) ), ...
@@ -1081,9 +1093,9 @@ if nargin > 4
         end
     else
         if scaleData
-            SIP = mat2gray(sum( patchIm, 3 ));
+            SIP = squeeze(mat2gray(sum( patchIm, 3 )));
         else
-            SIP = sum( patchIm, 3 );
+            SIP = squeeze(sum( patchIm, 3 ));
         end
     end
 end
