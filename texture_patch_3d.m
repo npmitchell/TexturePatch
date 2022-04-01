@@ -469,7 +469,12 @@ if isfield( Options, 'VertexNormals' )
                 'Invalid vertex normal input');
     end
 else
-    VN = per_vertex_normals( VV, FF, 'Weighting', 'angle' );
+    try
+        % First try to compute normals via gptoolbox
+        VN = per_vertex_normals( VV, FF, 'Weighting', 'angle' );
+    catch
+        error('Must first install gptoolbox here for per_vertex_normals')
+    end
 end
 
 % Determine the onion layer spacing

@@ -496,6 +496,31 @@ dy = ( yLim(2) - yLim(1) ) / imSize(1);
 [X, Y] = meshgrid( (xLim(1)+dx/2):dx:(xLim(2)-dx/2), ...
     (yLim(1)+dy/2):dy:(yLim(2)-dy/2) );
 
+% Sometimes, the size of X and Y can be short by one index due to machine 
+% precision. This could be mitigated by replacing the above with:
+% [X, Y] = meshgrid( (xLim(1)+dx/2):dx:(xLim(2)-smallerNumerOrZero), ...
+%     (yLim(1)+dy/2):dy:(yLim(2)- smallerNumerOrZero) );
+% but for clarity, since this very rarely happens, we just handle the odd
+% case when it arises. -NPMithell 2021
+try
+    assert(all(size(X) == imSize))
+catch
+    % There can be an off-by-one-error here due to machine precision
+    xysz = size(X) ;
+
+    if xysz(1) == imSize(1) - 1
+        % Note there is no 'danger' in removing -dy/2 since we set dy by
+        % yLim in the first place.
+        [X, Y] = meshgrid( (xLim(1)+dx*0.5):dx:(xLim(2)-dx*0.5), ...
+        (yLim(1)+dy*0.5):dy:(yLim(2)) );
+    elseif xysz(2) == imSize(2) - 1
+        % Note there is no 'danger' in removing -dx/2 since we set dx by
+        % xLim in the first place.
+        [X, Y] = meshgrid( (xLim(1)+dx/2):dx:(xLim(2)), ...
+        (yLim(1)+dy*0.5):dy:(yLim(2)-dy*0.5) );
+    end
+end
+
 XY = [ X(:), Y(:) ];
 
 % Find the faces containing the specified pixel centers in real-space and
