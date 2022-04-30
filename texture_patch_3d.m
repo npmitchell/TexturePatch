@@ -609,6 +609,29 @@ if ~isempty(IV) % Allow users to supply pre-made interpolant (no data)
 end
 
 
+% There is an issue if J is 3D and the data range extends beyond 1
+if isRGB
+
+    maxvalueRGBdata = max(max(IV{1}), max(IV{2}), max(IV{3})) ;
+
+    normalizeRGBdata = maxvalueRGBdata > 1 ;
+    val2norm = min(Imax, maxvalueRGBdata) ;
+    normalizationRGBdata = 2^(ceil(log2(double(val2norm)))) ;
+    
+elseif isFalseColor
+    % Each input texture channel receives its own interpolant
+    maxvalueRGBdata = -Inf ;
+    for kk = 1:length(IV)
+        maxvalueRGBdata = max(maxvalueRGBdata, max(IV{kk}(:))) ;
+    end
+
+    normalizeRGBdata = maxvalueRGBdata > 1 ;
+    val2norm = min(Imax, maxvalueRGBdata) ;
+    normalizationRGBdata = single(2^(ceil(log2(double(val2norm))))-1) ;
+else
+    normalizeRGBdata = false ;
+end
+
 % Create the interpolant object from the input image object ---------------
 if isfield( Options, 'Interpolant' )
     
@@ -731,6 +754,9 @@ hold on
 
 % Create container for all surface objects 
 container = hggroup(gca) ;
+
+% Assume data is already normalized
+normRGBdata = false ;
 
 % Loop through all of the faces of the mesh
 for i = 1:size(FF,1)
@@ -1035,8 +1061,11 @@ for i = 1:size(FF,1)
         
     % Show surface --------------------------------------------------------
     % NOTE: MATLAB uses left-handed normals for graphics objects...
-    Options.VertexNormals = -vn;
-    % J 
+    % Options.VertexNormals = -vn;
+    % Normalize J if RGB
+    if normalizeRGBdata 
+        J = single(J) ./ single(normalizationRGBdata) ;
+    end
     surface( container, x, y, z, J, Options );
     
 end
