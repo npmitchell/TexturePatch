@@ -321,9 +321,9 @@ if isFalseColor
             IV = IV{1} ;
             isFalseColor = false ;
         elseif length(IV) == 2
-            disp('falseColors not supplied --> Using default 2-color channels of red and cyan')
-            falseColors{1} = [1, 0, 0] ;
-            falseColors{2} = [0, 1, 1] ;
+            disp('falseColors not supplied --> Using default 2-color channels of green and magenta')
+            falseColors{1} = [0, 1, 0] ;
+            falseColors{2} = [1, 0, 1] ;
         elseif length(IV) == 3
             falseColors{1} = [1, 0, 0] ;
             falseColors{2} = [0, 1, 0] ;
@@ -739,7 +739,7 @@ if makeOnion
             OV = smoothV - i .* layerSpacing .* vN;
             
             % Construct a triangulation representation
-            smoothTri = triangulation( TF, OV );
+            smoothTri = triangulation( TF, real(OV) );
             
             % Find the texture coordinates of the pixel centers
             pixTexture = nan( size(XY,1), size(TV,2) );
